@@ -16,6 +16,7 @@
 ## with this program; if not, write to the Free Software Foundation, Inc.,
 ## 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+import platform as _platform
 from logging import DEBUG as _DEBUG
 from logging import getLogger
 
@@ -141,7 +142,7 @@ def _create_device_panel():
     p._lux = _status_line(_('Lighting'))
     p.pack_start(p._lux, False, False, 0)
 
-    p.pack_start(Gtk.Separator.new(Gtk.Orientation.HORIZONTAL), False, False, 0)  # spacer
+    #    p.pack_start(Gtk.Separator.new(Gtk.Orientation.HORIZONTAL), False, False, 0)  # spacer
 
     p._config = _config_panel.create()
     p.pack_end(p._config, True, True, 4)
@@ -323,11 +324,13 @@ def _create_window_layout():
     bottom_buttons_box.add(quit_button)
     about_button = _new_button(_('About %s') % NAME, 'help-about', _SMALL_BUTTON_ICON_SIZE, clicked=_show_about_window)
     bottom_buttons_box.add(about_button)
-    diversion_button = _new_button(
-        _('Rule Editor'), '', _SMALL_BUTTON_ICON_SIZE, clicked=lambda *_trigger: _show_diversion_window(_model)
-    )
-    bottom_buttons_box.add(diversion_button)
-    bottom_buttons_box.set_child_secondary(diversion_button, True)
+    # The diversion system won't work on macOS or Windows so don't even show the button for it.
+    if _platform.system() not in ('Darwin', 'Windows'):
+        diversion_button = _new_button(
+            _('Rule Editor'), '', _SMALL_BUTTON_ICON_SIZE, clicked=lambda *_trigger: _show_diversion_window(_model)
+        )
+        bottom_buttons_box.add(diversion_button)
+        bottom_buttons_box.set_child_secondary(diversion_button, True)
 
     # solaar_version = Gtk.Label()
     # solaar_version.set_markup('<small>' + NAME + ' v' + VERSION + '</small>')
@@ -683,14 +686,9 @@ def _update_device_panel(device, panel, buttons, full=False):
     battery_level = device.status.get(_K.BATTERY_LEVEL)
     battery_voltage = device.status.get(_K.BATTERY_VOLTAGE)
     if battery_level is None and battery_voltage is None:
-        icon_name = _icons.battery()
-        panel._battery._icon.set_from_icon_name(icon_name, _INFO_ICON_SIZE)
-        panel._battery._icon.set_sensitive(False)
-        panel._battery._text.set_sensitive(is_online)
-        panel._battery._label.set_text(_('Battery'))
-        panel._battery._text.set_markup('<small>%s</small>' % _('unknown'))
-        panel._battery.set_tooltip_text(_('Battery information unknown.'))
+        panel._battery.set_visible(False)
     else:
+        panel._battery.set_visible(True)
         battery_next_level = device.status.get(_K.BATTERY_NEXT_LEVEL)
         charging = device.status.get(_K.BATTERY_CHARGING)
         icon_name = _icons.battery(battery_level, charging)
@@ -725,9 +723,16 @@ def _update_device_panel(device, panel, buttons, full=False):
         panel._battery._text.set_markup(text)
         panel._battery.set_tooltip_text(tooltip_text)
 
-    if is_online:
-        not_secure = device.status.get(_K.LINK_ENCRYPTED) is False
-        if not_secure:
+    if device.status.get(_K.LINK_ENCRYPTED) is None:
+        panel._secure.set_visible(False)
+    elif is_online:
+        panel._secure.set_visible(True)
+        panel._secure._icon.set_visible(True)
+        if device.status.get(_K.LINK_ENCRYPTED) is True:
+            panel._secure._text.set_text(_('encrypted'))
+            panel._secure._icon.set_from_icon_name('security-high', _INFO_ICON_SIZE)
+            panel._secure.set_tooltip_text(_('The wireless link between this device and its receiver is encrypted.'))
+        else:
             panel._secure._text.set_text(_('not encrypted'))
             panel._secure._icon.set_from_icon_name('security-low', _INFO_ICON_SIZE)
             panel._secure.set_tooltip_text(
@@ -736,14 +741,10 @@ def _update_device_panel(device, panel, buttons, full=False):
                     'This is a security issue for pointing devices, and a major security issue for text-input devices.'
                 )
             )
-        else:
-            panel._secure._text.set_text(_('encrypted'))
-            panel._secure._icon.set_from_icon_name('security-high', _INFO_ICON_SIZE)
-            panel._secure.set_tooltip_text(_('The wireless link between this device and its receiver is encrypted.'))
-        panel._secure._icon.set_visible(True)
     else:
-        panel._secure._text.set_markup('<small>%s</small>' % _('offline'))
+        panel._secure.set_visible(True)
         panel._secure._icon.set_visible(False)
+        panel._secure._text.set_markup('<small>%s</small>' % _('offline'))
         panel._secure.set_tooltip_text('')
 
     if is_online:
@@ -825,8 +826,12 @@ _window = None
 
 def init(show_window, hide_on_close):
     Gtk.Window.set_default_icon_name(NAME.lower())
-    Gtk.Window.set_default_icon_from_file(_icons.icon_file(NAME.lower()))
-
+    # GTK installed on macOS via homebrew does not support SVG icons and won't
+    # be able to load them.
+    _icon = _icons.icon_file(NAME.lower())
+    if _icon:
+        Gtk.Window.set_default_icon_from_file(_icon)
+        
     global _model, _tree, _details, _info, _empty, _window
     _model = Gtk.TreeStore(*_COLUMN_TYPES)
     _tree = _create_tree(_model)
