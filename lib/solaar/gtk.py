@@ -24,6 +24,7 @@ import os.path
 import signal
 import sys
 import tempfile
+import platform as _platform
 
 from logging import INFO as _INFO
 from logging import WARNING as _WARNING
@@ -137,7 +138,8 @@ def _handlesig(signl, stack):
 
 
 def main():
-    _require('pyudev', 'python3-pyudev')
+    if _platform.system() == 'Linux':
+        _require('pyudev', 'python3-pyudev')
 
     args = _parse_arguments()
     if not args:

@@ -35,12 +35,20 @@ from logging import getLogger
 from select import select as _select
 from time import sleep
 from time import time as _timestamp
+import platform as _platform
 
-from pyudev import Context as _Context
-from pyudev import Device as _Device
-from pyudev import DeviceNotFoundError
-from pyudev import Devices as _Devices
-from pyudev import Monitor as _Monitor
+if _platform.system() in ('Darwin', 'Windows'):
+    from hidapi.udev import Context as _Context
+    from hidapi.udev import Device as _Device
+    from hidapi.udev import DeviceNotFoundError
+    from hidapi.udev import Devices as _Devices
+    from hidapi.udev import Monitor as _Monitor
+else:
+    from pyudev import Context as _Context
+    from pyudev import Device as _Device
+    from pyudev import DeviceNotFoundError
+    from pyudev import Devices as _Devices
+    from pyudev import Monitor as _Monitor
 
 _log = getLogger(__name__)
 del getLogger

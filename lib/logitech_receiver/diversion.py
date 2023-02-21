@@ -21,14 +21,20 @@ import os as _os
 import os.path as _path
 import sys as _sys
 import time as _time
+import platform as _platform
 
 from logging import DEBUG as _DEBUG
 from logging import INFO as _INFO
 from logging import getLogger
 from math import sqrt as _sqrt
 from struct import unpack as _unpack
+# There is no evdev on macOS or Windows. Diversion will not work without
+# it but other Solaar functionality is available.
+if _platform.system() in ('Darwin', 'Windows'):
+    evdev = None
+else:
+    import evdev
 
-import evdev
 import keysyms.keysymdef as _keysymdef
 import psutil
 
@@ -160,25 +166,32 @@ def xkb_setup():
     return Xkbdisplay
 
 
-buttons = {
-    'unknown': (None, None),
-    'left': (1, evdev.ecodes.ecodes['BTN_LEFT']),
-    'middle': (2, evdev.ecodes.ecodes['BTN_MIDDLE']),
-    'right': (3, evdev.ecodes.ecodes['BTN_RIGHT']),
-    'scroll_up': (4, evdev.ecodes.ecodes['BTN_4']),
-    'scroll_down': (5, evdev.ecodes.ecodes['BTN_5']),
-    'scroll_left': (6, evdev.ecodes.ecodes['BTN_6']),
-    'scroll_right': (7, evdev.ecodes.ecodes['BTN_7']),
-    'button8': (8, evdev.ecodes.ecodes['BTN_8']),
-    'button9': (9, evdev.ecodes.ecodes['BTN_9']),
-}
+if evdev:
+    buttons = {
+        'unknown': (None, None),
+        'left': (1, evdev.ecodes.ecodes['BTN_LEFT']),
+        'middle': (2, evdev.ecodes.ecodes['BTN_MIDDLE']),
+        'right': (3, evdev.ecodes.ecodes['BTN_RIGHT']),
+        'scroll_up': (4, evdev.ecodes.ecodes['BTN_4']),
+        'scroll_down': (5, evdev.ecodes.ecodes['BTN_5']),
+        'scroll_left': (6, evdev.ecodes.ecodes['BTN_6']),
+        'scroll_right': (7, evdev.ecodes.ecodes['BTN_7']),
+        'button8': (8, evdev.ecodes.ecodes['BTN_8']),
+        'button9': (9, evdev.ecodes.ecodes['BTN_9']),
+    }
 
-# uinput capability for keyboard keys, mouse buttons, and scrolling
-key_events = [c for n, c in evdev.ecodes.ecodes.items() if n.startswith('KEY') and n != 'KEY_CNT']
-for (_, evcode) in buttons.values():
-    if evcode:
-        key_events.append(evcode)
-devicecap = {evdev.ecodes.EV_KEY: key_events, evdev.ecodes.EV_REL: [evdev.ecodes.REL_WHEEL, evdev.ecodes.REL_HWHEEL]}
+    # uinput capability for keyboard keys, mouse buttons, and scrolling
+    key_events = [c for n, c in evdev.ecodes.ecodes.items() if n.startswith('KEY') and n != 'KEY_CNT']
+    for (_, evcode) in buttons.values():
+        if evcode:
+            key_events.append(evcode)
+    devicecap = {evdev.ecodes.EV_KEY: key_events, evdev.ecodes.EV_REL: [evdev.ecodes.REL_WHEEL, evdev.ecodes.REL_HWHEEL]}
+else:
+    # Just mock these since they won't be useful without evdev anyway
+    buttons = {}
+    key_events = []
+    devicecap = {}
+
 udevice = None
 
 
@@ -418,6 +431,8 @@ class Rule(RuleComponent):
         return 'Rule%s[%s]' % (source, ', '.join([c.__str__() for c in self.components]))
 
     def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate rule: %s', self)
         result = True
         for component in self.components:
             result = component.evaluate(feature, notification, device, status, result)
@@ -444,6 +459,8 @@ class Condition(RuleComponent):
         return 'CONDITION'
 
     def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         return False
 
 
@@ -459,6 +476,8 @@ class Not(Condition):
         return 'Not: ' + str(self.component)
 
     def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         result = self.component.evaluate(feature, notification, device, status, last_result)
         return None if result is None else not result
 
@@ -475,6 +494,8 @@ class Or(Condition):
         return 'Or: [' + ', '.join(str(c) for c in self.components) + ']'
 
     def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         result = False
         for component in self.components:
             result = component.evaluate(feature, notification, device, status, last_result)
@@ -497,6 +518,8 @@ class And(Condition):
         return 'And: [' + ', '.join(str(c) for c in self.components) + ']'
 
     def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         result = True
         for component in self.components:
             result = component.evaluate(feature, notification, device, status, last_result)
@@ -558,6 +581,8 @@ class Process(Condition):
         return 'Process: ' + str(self.process)
 
     def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         if not isinstance(self.process, str):
             return False
         focus = x11_focus_prog()
@@ -584,6 +609,8 @@ class MouseProcess(Condition):
         return 'MouseProcess: ' + str(self.process)
 
     def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         if not isinstance(self.process, str):
             return False
         pointer_focus = x11_pointer_prog()
@@ -607,6 +634,8 @@ class Feature(Condition):
         return 'Feature: ' + str(self.feature)
 
     def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         return feature == self.feature
 
     def data(self):
@@ -627,6 +656,8 @@ class Report(Condition):
         return 'Report: ' + str(self.report)
 
     def evaluate(self, report, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         return (notification.address >> 4) == self.report
 
     def data(self):
@@ -648,6 +679,8 @@ class Setting(Condition):
         return 'Setting: ' + ' '.join([str(a) for a in self.args])
 
     def evaluate(self, report, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         if len(self.args) < 3:
             return None
         dev = _Device.find(self.args[0]) if self.args[0] is not None else device
@@ -698,6 +731,8 @@ class Modifiers(Condition):
         return 'Modifiers: ' + str(self.desired)
 
     def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         if gkeymap:
             current = gkeymap.get_modifier_state()  # get the current keyboard modifier
             return self.desired == (current & MODIFIER_MASK)
@@ -753,6 +788,8 @@ class Key(Condition):
         return 'Key: %s (%s)' % ((str(self.key) if self.key else 'None'), self.action)
 
     def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         return bool(self.key and self.key == (key_down if self.action == self.DOWN else key_up))
 
     def data(self):
@@ -784,6 +821,8 @@ class KeyIsDown(Condition):
         return 'KeyIsDown: %s' % (str(self.key) if self.key else 'None')
 
     def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         return key_is_down(self.key)
 
     def data(self):
@@ -838,6 +877,8 @@ class Test(Condition):
         return 'Test: ' + str(self.test)
 
     def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         return self.function(feature, notification.address, notification.data, self.parameter)
 
     def data(self):
@@ -861,6 +902,8 @@ class TestBytes(Condition):
         return 'TestBytes: ' + str(self.test)
 
     def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         return self.function(feature, notification.address, notification.data)
 
     def data(self):
@@ -886,6 +929,8 @@ class MouseGesture(Condition):
         return 'MouseGesture: ' + ' '.join(self.movements)
 
     def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         if feature == _F.MOUSE_GESTURE:
             d = notification.data
             data = _unpack('!' + (int(len(d) / 2) * 'h'), d)
@@ -927,11 +972,35 @@ class Active(Condition):
         return 'Active: ' + str(self.devID)
 
     def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
         dev = _Device.find(self.devID)
         return bool(dev and dev.ping())
 
     def data(self):
         return {'Active': self.devID}
+
+
+class Device(Condition):
+
+    def __init__(self, devID, warn=True):
+        if not (isinstance(devID, str)):
+            if warn:
+                _log.warn('rule Device argument not a string: %s', devID)
+            self.devID = ''
+        self.devID = devID
+
+    def __str__(self):
+        return 'Device: ' + str(self.devID)
+
+    def evaluate(self, feature, notification, device, status, last_result):
+        if _log.isEnabledFor(_DEBUG):
+            _log.debug('evaluate condition: %s', self)
+        dev = _Device.find(self.devID)
+        return device == dev
+
+    def data(self):
+        return {'Device': self.devID}
 
 
 class Action(RuleComponent):
@@ -1231,6 +1300,7 @@ COMPONENTS = {
     'TestBytes': TestBytes,
     'MouseGesture': MouseGesture,
     'Active': Active,
+    'Device': Device,
     'KeyPress': KeyPress,
     'MouseScroll': MouseScroll,
     'MouseClick': MouseClick,
@@ -1282,6 +1352,12 @@ def key_is_down(key):
         return key in keys_down
 
 
+def evaluate_rules(feature, notification, device, status):
+    if _log.isEnabledFor(_DEBUG):
+        _log.debug('evaluating rules on %s', notification)
+    rules.evaluate(feature, notification, device, status, True)
+
+
 # process a notification
 def process_notification(device, status, notification, feature):
     global keys_down, g_keys_down, m_keys_down, mr_key_down, key_down, key_up, thumb_wheel_displacement
@@ -1328,7 +1404,7 @@ def process_notification(device, status, notification, feature):
             thumb_wheel_displacement = 0
         thumb_wheel_displacement += signed(notification.data[0:2])
 
-    GLib.idle_add(rules.evaluate, feature, notification, device, status, True)
+    GLib.idle_add(evaluate_rules, feature, notification, device, status)
 
 
 _XDG_CONFIG_HOME = _os.environ.get('XDG_CONFIG_HOME') or _path.expanduser(_path.join('~', '.config'))
